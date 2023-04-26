@@ -1,0 +1,247 @@
+---
+title: "Zwift_Bikes"
+format: html
+server: shiny
+---
+
+# Bikes on Zwift
+
+## Introduction
+
+As described elsewhere \[insert link to zwifthub\], Zwift lets players buy faster bikes and wheelsets. For the most part, this virtual equipment is intended to mirror the appearance and performance of real-world equipment. A more aerodynamic bike will require travel at a greater speed at a given power output than a less aerodynamic bike, and a lighter bike will be faster uphill.
+
+While the most important factors in overall speed are power and tactics (and to a lesser extent, rider weight), for a given rider at a given level of fitness, optimal equipment selection can meaningfully improve time during races, time trials, or casual riding.
+
+All riders start with basic equipment. Equipment is generally limited to riders of a certain level, with some of the most advanced equipment only available to more advanced riders. Additionally, the majority of equipment also requires "drops" (the in-game currency). The number of drops required to purchase a given piece of equipment roughly correlates with the real-world price, with 100 drops roughly equivalent to \$1.
+
+Some equipment is available as an unlock after completing in-game challenges, such as riding a given total distance or climbing a given number of total feet.
+
+Zwift provides minimal tools to assist in equipment choices for a rider seeking to optimize performance through upgrades. Equipment is rated on a 1-4 star scale on both aerodynamics and weight, and these stars only roughly correlate with performance. Additionally, there are meaningful differences within the star categories. Further, the app does not list challenge-unlocked equipment at all.
+
+The purpose of this document is to create a unified resource which riders can use to identify equipment which will optimize their Zwift performance. Riders can use the below tools to better understand performance differences between different wheels and bikes, make purchase and acquisition decisions, and compare predicted performance on a variety of terrain settings.
+
+## Analysis
+
+```{r, echo = FALSE}
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+library(plotly)
+
+frames_data <- readxl::read_excel(path = "Zwift Equipment Data.xlsx",sheet = "All Frames Speed")
+
+wheels_data <- readxl::read_excel(path = "Zwift Equipment Data.xlsx", sheet = "Wheelset Speed")
+```
+
+### Data Source
+
+ZwiftHub has completed performance tests of all frames and wheels on two standard courses. The first is a relatively flat course, which primarily measures the impact of aerodynamics on performance. The second is a long hill climb, which primarily measures the impact of weight on performance. More details are available here.
+
+Data was scraped from ZwiftHub tables as of.
+
+### Star Ratings
+
+Zwift's star ratings are intended to give a general overview of equipment performance. In the below graph, star ratings are compared to actual measured performance.\
+
+See: https://quarto.org/docs/interactive/shiny/
+
+```{r, echo = FALSE}
+
+
+frames_data %>%
+  ggplot(aes(x=Aero,y=`Flat Time`)) +
+  geom_point(aes(color = Type)) +
+  labs(title = "Flat Time")+
+  ylab("Flat Time")+
+  xlab("Aero Stars")
+
+p <- frames_data %>%
+  ggplot(aes(x=Weight,y=`Climb Time`)) +
+  geom_point(aes(color = Type)) +
+  labs(title = "Climb Time")+
+  ylab("Climb Time")+
+  xlab("Weight Stars")
+  ggplotly(p)
+```
+
+### Frame and Wheel Combinatons
+
+Frames and wheels work together, though. So it's probably worth considering them as a unit. There isn't data on every frame/wheel set combination, but there is some for certain faster frames and wheelsets:
+
+```{r, echo = FALSE}
+FramexWheel <- read_csv("Frames x Wheels Times.csv") 
+
+FramexWheel%>%
+  mutate(concat_name = paste0(Frame," x ",Wheelset)) %>%
+  ggplot(aes(x=`Flat Time`,y=`Climb Time`,color=Frame))+
+  geom_point()+
+  xlim(min(FramexWheel$`Flat Time`),max(FramexWheel$`Flat Time`))+
+  ylim(min(FramexWheel$`Climb Time`),max(FramexWheel$`Climb Time`)) 
+```
+
+### Linear Model
+
+Using this test information, we can create a mathematical model to predict the speed of any wheel-frame combination.
+
+```{r, echo = FALSE}
+frames_merge_data <- frames_data %>%
+  transmute(
+    Frame = Frame,
+    Frame_Flat_Time = `Flat Time`,
+    Frame_Climb_Time = `Climb Time`,
+    Frame_Aero_St = Aero,
+    Frame_Weight_St = Weight,
+    Frame_Price = Price,
+    Frame_Type = Type,
+    Frame_Level = `Level Req`
+  )
+
+wheels_merge_data <- wheels_data %>%
+  transmute(
+    Wheelset = Wheelset,
+    Wheel_Flat_Time = `Flat Time`,
+    Wheel_Climb_Time = `Climb Time`,
+    Wheel_Aero_St = Aero,
+    Wheel_Weight_St = Weight,
+    Wheel_Price = Price,
+    Wheel_Level = `Level Req`
+  )
+
+framexwheel_train <- FramexWheel %>% 
+  left_join(frames_merge_data, by = "Frame") %>%
+  left_join(wheels_merge_data, by = "Wheelset")
+
+flat_model <- lm(data = framexwheel_train,
+                 `Flat Time` ~
+                   Frame_Flat_Time+
+                Frame_Climb_Time+
+                Frame_Aero_St+
+                Frame_Weight_St+
+                Wheel_Flat_Time+
+                Wheel_Climb_Time+
+                Wheel_Aero_St+
+                Wheel_Weight_St
+                )
+
+summary(flat_model) %>% 
+  print()
+
+climb_model <- lm(data = framexwheel_train,
+                 `Climb Time` ~
+                   Frame_Flat_Time+
+                Frame_Climb_Time+
+                Frame_Aero_St+
+                Frame_Weight_St+
+                Wheel_Flat_Time+
+                Wheel_Climb_Time+
+                Wheel_Aero_St+
+                Wheel_Weight_St
+                )
+
+summary(climb_model) %>% 
+  print()
+
+```
+
+These models (which are wicked significant and good) nicely shows that the most important things for flat speed are the combined frame and wheel flat time, but a little information comes from the number of aerodynamics stars the wheels have. That's interesting!
+
+Also, both weight and aerodynamics predict climbing time.
+
+We can use these models to predict the speeds of any frame or wheelset combination!
+
+```{r, echo = FALSE}
+AllFramesxWheel <- expand.grid(frames_merge_data$Frame,
+            wheels_merge_data$Wheelset) %>%
+  data.frame() %>%
+  `colnames<-`(c("Frame","Wheelset")) %>% 
+  left_join(frames_merge_data, by = "Frame") %>%
+  left_join(wheels_merge_data, by = "Wheelset") %>%
+  mutate(Flat_Time = predict(flat_model,
+                             newdata = .),
+         Climb_Time = predict(climb_model,
+                              newdata = .)
+  ) %>%
+  left_join(
+    FramexWheel,by=c("Frame","Wheelset")
+  ) %>%
+  mutate(Flat_Time = case_when(
+    !is.na(`Flat Time`)~`Flat Time`,
+     TRUE ~ Flat_Time
+    ),
+    Climb_Time = case_when(
+    !is.na(`Climb Time`)~`Climb Time`,
+     TRUE ~ Climb_Time
+    )
+    ) %>%
+  select(-`Flat Time`,-`Climb Time`)
+
+write_csv(AllFramesxWheel,"AllFramesxWheel.csv")
+
+p<- AllFramesxWheel %>%
+ ggplot(aes(x=Flat_Time,y=Climb_Time,shape=Frame_Type,color=Frame_Type,
+            text = paste(Frame,Wheelset,Frame_Type)
+            )
+        )+
+  geom_point()+
+  xlim(min(AllFramesxWheel$Flat_Time),max(AllFramesxWheel$Flat_Time))+
+  ylim(min(AllFramesxWheel$Climb_Time),max(AllFramesxWheel$Climb_Time)) 
+
+ggplotly(p,tooltip = c("text"))
+```
+
+This is moderately interesting, and you can figure out that there are some werid things going on. The Pinarello Bolide and Ventum One frames seem to perform more like a TT frame than standard ones, and the Zwift TT bike performs more like a standard frame than a TT frame. Also the Buffalo is super slow.
+
+### Course Specific 
+
+Races aren't generally all-flat or all-climb, so this tool lets you choose a percentage of flat or climb and figure out which frame-wheel combination will be overall fastest.
+
+```{r}
+sliderInput("hill_pct", "Percent Hill:", 
+            min = 0, max = 100, value = 30)
+radioButtons("frame_type_select",
+             label = "Select Frame Type",
+             choices = c("Standard","TT"),
+             inline = TRUE)
+plotlyOutput("frame_plot")
+```
+
+```{r}
+#| context: server
+
+library(tidyverse)
+library(plotly)
+
+AllFramesxWheel <- read_csv("AllFramesxWheel.csv") %>%
+  mutate(Wheel_Price= as.numeric(Wheel_Price))
+
+output$frame_plot <- renderPlotly({
+  p <- AllFramesxWheel %>%
+    filter(Frame_Type == input$frame_type_select)%>%
+    
+    mutate(total_time = (Climb_Time * input$hill_pct + 
+                           Flat_Time * (100-input$hill_pct)) / 100) %>%
+    rowwise() %>%
+    mutate(total_price = sum(Frame_Price,Wheel_Price,na.rm=TRUE)) %>%
+    mutate(level = max(c(Frame_Level,Wheel_Level,na.rm=TRUE))) %>%
+    ungroup() %>%
+    
+    ggplot(aes(x=total_time,
+               y=total_price,
+               color=level,
+            text = paste(Frame,Wheelset,total_time,total_price,level)
+            )
+        )+
+  geom_point()
+  
+  ggplotly(p,tooltip = c("text"))
+  
+})
+```
+
+### Money and Level
+
+The other thing you might want to know is which is the best bike to buy at a given level and point value. The below chart will allow you to select a level and see what the fastest bike - wheel combinations are, the individual and total cost
+
+### 
+
+### 
