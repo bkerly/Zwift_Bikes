@@ -225,3 +225,66 @@ all_frame_wheels_predict %>%
   ggplot(aes(x=pred_flat,y=pred_climb,color = Type)) +
   geom_point()
 
+
+# Make a Shiny Mini-App ---------------------------------------------------
+# The idea is that you can filter on level and dollars, then select some wheels and frames and you get a graph of which is fastest.
+# And maybe we can try to implement it on different courses?
+
+#https://stackoverflow.com/questions/42122414/constraining-a-shiny-app-input-based-on-another-input
+
+#https://shiny.rstudio.com/reference/shiny/1.5.0/checkboxgroupinput
+
+library(shiny)
+
+ui <- fluidPage(
+  sidebarPanel(
+  selectInput(inputId = "frametype", label = "Frame Type",choices = c("Any",all_frame_wheels_predict$Type %>% unique())),
+  checkboxGroupInput(inputId = "frame", label = "Frame"),
+  checkboxGroupInput(inputId = "wheel", label = "Wheel", choices = all_frame_wheels_predict$Wheels %>% unique() %>% sort(),
+                     selected = (all_frame_wheels_predict$Wheels %>% unique())[1:4])
+  ),
+  mainPanel(
+    plotOutput("Plot")
+  )
+)
+
+# Notice the session argument to be passed to updateSliderInput
+server <- function(input, output, session) {
+  observe({
+    frame_options <- all_frame_wheels_predict %>%
+      select(Bike,Type) %>%
+      filter(if(input$frametype == "Any") TRUE else
+        Type == input$frametype) %>%
+      select(Bike) %>%
+      unlist() %>%
+      as.character() %>%
+      unique() %>%
+      sort()
+    
+    updateCheckboxGroupInput(session,
+                             "frame",
+                             choices = frame_options,
+                             selected = frame_options[1:4])
+    
+      
+  })
+  
+  output$Plot <- renderPlot({
+    
+    all_frame_wheels_predict %>%
+       filter(Bike %in% input$frame,
+              Wheels %in% input$wheel) %>%
+      ggplot(aes(x=pred_flat,y=pred_climb,color = Bike)) +
+      geom_point(aes(shape = Wheels),size = 3)+
+      xlab("Climb Time")+
+      ylab("Flat Time")
+    
+  })
+  
+  
+}
+
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+
