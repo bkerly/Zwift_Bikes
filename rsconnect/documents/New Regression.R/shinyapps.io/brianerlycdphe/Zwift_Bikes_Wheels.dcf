@@ -1,0 +1,14 @@
+name: Zwift_Bikes_Wheels
+title: Zwift_Bikes_Wheels
+username:
+account: brianerlycdphe
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 9059373
+bundleId: 7191021
+url: https://brianerlycdphe.shinyapps.io/Zwift_Bikes_Wheels/
+when: 1683581030.90381
+lastSyncTime: 1683581030.90381
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: .RData|_quarto.yml|Frames x Wheels.R|Zwift_Bikes.html|Zwift_Bikes.qmd|Zwift_Bikes_files
